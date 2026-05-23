@@ -1,13 +1,27 @@
-FROM rust:1-alpine AS builder
-RUN apk add --no-cache musl-dev
+FROM --platform=$BUILDPLATFORM rust:1-alpine AS builder
+
+# xx provides cross-compilation helpers that auto-detect the target
+# architecture from TARGETPLATFORM and configure the sysroot.
+COPY --from=tonistiigi/xx / /
+
+RUN apk add --no-cache musl-dev clang lld llvm && \
+	xx-apk add --no-cache musl-dev
+
+RUN rustup target add $(xx-cargo --print-target-triple)
 
 COPY . /sources
 WORKDIR /sources
-RUN cargo build --release
-RUN chown nobody:nogroup /sources/target/release/bin
+
+# Build the project. xx-cargo automatically configures cross-compilation and linkers.
+RUN xx-cargo build --release && \
+	cp "target/$(xx-cargo --print-target-triple)/release/bin" /pastebin && \
+	chown nobody:nogroup /pastebin
+
+# Verify the binary is for the correct architecture.
+RUN xx-verify /pastebin
 
 FROM scratch
-COPY --from=builder /sources/target/release/bin /pastebin
+COPY --from=builder /pastebin /pastebin
 COPY --from=builder /etc/passwd /etc/passwd
 
 USER nobody
